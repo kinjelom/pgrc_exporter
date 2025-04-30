@@ -15,15 +15,19 @@ type SlaveLag struct {
 	replayLag  uint64
 }
 
-func NewCluster(dataSource *DataSource, clusterName string, hosts []string) *Cluster {
+func NewCluster(dataSource *DataSource, clusterName string, nodes []string) (*Cluster, error) {
 	cluster := &Cluster{}
 	cluster.name = clusterName
 	cluster.dataSource = dataSource
 	cluster.nodes = make(map[string]*Node)
-	for _, host := range hosts {
-		cluster.nodes[host] = NewNode(cluster.dataSource, host)
+	var err error
+	for _, node := range nodes {
+		cluster.nodes[node], err = NewNode(cluster.dataSource, node)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return cluster
+	return cluster, nil
 }
 
 func (cluster *Cluster) queryForState() (*NodeState, *map[string]*NodeState, error) {
@@ -31,18 +35,18 @@ func (cluster *Cluster) queryForState() (*NodeState, *map[string]*NodeState, err
 	var slaves = make(map[string]*NodeState)
 	mi := 0
 	si := 0
-	for host, node := range cluster.nodes {
-		nodeState := node.queryForState()
+	for nodeAddr, nodeStruct := range cluster.nodes {
+		nodeState := nodeStruct.queryForState()
 		if nodeState.err == nil {
 			if nodeState.isInRecovery {
-				slaves[host] = nodeState
+				slaves[nodeAddr] = nodeState
 				si++
 			} else {
 				if mi == 0 {
 					master = nodeState
 					mi++
 				} else {
-					return nil, nil, fmt.Errorf("too many masters, konwn %s, pretending: %s", master.host, node.host)
+					return nil, nil, fmt.Errorf("too many masters, konwn %s, pretending: %s", master.address, nodeStruct.address)
 				}
 			}
 		}
@@ -71,7 +75,7 @@ func (cluster *Cluster) calculateSlaveLag(master NodeState, slave NodeState) *Sl
 		"  slave.lastWalReplayLsn  = %d (%s)\n"+
 		"  slave.receiveLag        = %d\n"+
 		"  slave.replayLag         = %d",
-		slave.host,
+		slave.address,
 		master.currentWalLsnBytes, master.currentWalLsn,
 		slave.lastWalReceiveLsnBytes, slave.lastWalReceiveLsn,
 		slave.lastWalReplayLsnBytes, slave.lastWalReplayLsn,

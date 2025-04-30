@@ -17,11 +17,13 @@ import (
 
 const (
 	ProgramFullName              = "Postgres Replication Cluster Exporter"
-	ProgramVersion               = "0.0.5"
+	ProgramName                  = "pgrc_exporter"
 	WrongParamsExitCode          = 1
 	HttpServerFailureExitCode    = 2
 	TaskSchedulerFailureExitCode = 3
 )
+
+var ProgramVersion = "dev"
 
 func clusterHash(nodes []string) string {
 	sort.Strings(nodes)
@@ -34,8 +36,7 @@ func main() {
 		Address     string   `goptions:"-A, --address, description='Address to listens on the TCP network'"`
 		Path        string   `goptions:"-P, --path, description='Path under which to expose metrics'"`
 		ClusterName string   `goptions:"-C, --cluster-name, description='Cluster name'"`
-		Nodes       []string `goptions:"-n, --node, description='Replication cluster nodes. May be specified more than once'"`
-		Port        string   `goptions:"-p, --port, description='TCP port that Postgres listens on'"`
+		Nodes       []string `goptions:"-n, --node, description='Address of a replication cluster node in the format host:port; can be specified multiple times.'"`
 		User        string   `goptions:"-u, --user, description='User to connect as'"`
 		Password    string   `goptions:"-s, --password, description='Password to connect with'"`
 		Interval    int64    `goptions:"-i, --interval, description='Collecting metrics interval in seconds'"`
@@ -45,18 +46,17 @@ func main() {
 	}{
 		Address:   ":9188",
 		Path:      "/metrics",
-		Port:      "6432",
 		Interval:  15,
 		Verbosity: 2,
 	}
 	goptions.ParseAndFail(&options)
 	if options.Help {
-		fmt.Printf("%s version %s\n", ProgramFullName, ProgramVersion)
+		fmt.Printf("%s - %s v%s\n", ProgramFullName, ProgramName, ProgramVersion)
 		goptions.PrintHelp()
 		os.Exit(0)
 	}
 	if options.Version {
-		fmt.Printf("%s version %s\n", ProgramFullName, ProgramVersion)
+		fmt.Printf("%s\n", ProgramVersion)
 		os.Exit(0)
 	}
 	interval := options.Interval
@@ -81,8 +81,12 @@ func main() {
 
 	// manual injections framework ;)
 	var measurer = NewMeasurer(clusterName)
-	var dataSource = NewDataSource(measurer, options.Port, options.User, options.Password)
-	var cluster = NewCluster(dataSource, clusterName, options.Nodes)
+	var dataSource = NewDataSource(measurer, options.User, options.Password)
+	cluster, err := NewCluster(dataSource, clusterName, options.Nodes)
+	if err != nil {
+		log.error("FAILED to parse nodes: %v", err)
+		os.Exit(WrongParamsExitCode)
+	}
 	// Add a task
 	_, schedulerErr := scheduler.Add(&tasks.Task{
 		Interval: time.Duration(interval) * time.Second,
@@ -90,12 +94,12 @@ func main() {
 			measurer.updateRuntimeInfo(ProgramFullName, ProgramVersion, clusterName)
 			masterState, slaveStates, collectErr := cluster.queryForState()
 			if collectErr == nil {
-				log.debug("master %s current wal LSN %d (%s)", masterState.host, masterState.currentWalLsnBytes, masterState.currentWalLsn)
+				log.debug("master %s current wal LSN %d (%s)", masterState.address, masterState.currentWalLsnBytes, masterState.currentWalLsn)
 				measurer.updateClusterState(masterState, slaveStates)
 				for _, slaveState := range *slaveStates {
 					slaveLag := cluster.calculateSlaveLag(*masterState, *slaveState)
 					measurer.updateSlaveLag(masterState, slaveState, slaveLag)
-					log.debug("slave %s receive lag %d, replay lag %d", slaveState.host, slaveLag.receiveLag, slaveLag.replayLag)
+					log.debug("slave %s receive lag %d, replay lag %d", slaveState.address, slaveLag.receiveLag, slaveLag.replayLag)
 				}
 			} else {
 				log.error("collecting cluster data error: %v", collectErr)

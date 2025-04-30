@@ -23,8 +23,7 @@ Inspired by: https://github.com/Qarik-Group/pg-replication-tester - thanks :+1:
 -A, --address, Address to listens on the TCP network. Default: :9188
 -P, --path, Path under which to expose metrics. Default: /metrics
 -C, --cluster-name, Cluster name. Default: cluster-hash(nodes)
--n, --node, Replication cluster nodes. May be specified more than once.
--p, --port, TCP port that Postgres listens on. Default: 6432 
+-n, --node, Address of a replication cluster node in the format host:port; can be specified multiple times.
 -u, --user, User to connect as.
 -s, --password, Password to connect with.
 -i, --interval, Collecting metrics interval in seconds. Default: 15 
@@ -33,12 +32,12 @@ Inspired by: https://github.com/Qarik-Group/pg-replication-tester - thanks :+1:
 -h, --help, Show this help, then exit.
 ```
 
-## Building
+## Build
 
 ```bash
-GOOS=linux GOARCH=amd64 go build -o pgrc_exporter
+GOOS=linux GOARCH=amd64 go build -o pgrc_exporter-linux-amd64
 ```
 
 ## TODO
 
-https://www.postgresql.org/docs/15/view-pg-replication-slots.html
+https://www.postgresql.org/docs/17/view-pg-replication-slots.html
